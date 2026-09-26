@@ -1,0 +1,92 @@
+# Local infrastructure only; the API, worker and frontend run on the host (`npm run dev`).
+# All ports bind to 127.0.0.1. Values come from the root .env file (see .env.example).
+name: outbox
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    # Server settings are flags rather than a mounted .cnf file: bind mounts from Windows
+    # appear world-writable, and MySQL silently ignores world-writable config files.
+    command:
+      - --default-time-zone=+00:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --transaction-isolation=READ-COMMITTED
+      - --max-connections=200
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-outbox}
+      MYSQL_USER: ${MYSQL_USER:-outbox}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    ports:
+      - '127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306'
+    volumes:
+      - mysqldata:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP (-h 127.0.0.1) only succeeds once the real server is up, not the init-time one.
+      test:
+        [
+          'CMD-SHELL',
+          'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      - '127.0.0.1:${REDIS_HOST_PORT:-6379}:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  elasticsearch:
+    # Keep the major version in step with the @elastic/elasticsearch client (8.x).
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.18
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      # Development only: production deployments must enable security.
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    mem_limit: 1g
+    ports:
+      - '127.0.0.1:${ES_HOST_PORT:-9200}:9200'
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fs "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s" > /dev/null',
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+
+volumes:
+  mysqldata:
+  redisdata:
+  esdata:
