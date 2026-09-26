@@ -1,0 +1,30 @@
+{
+  "name": "outbox-email-scheduler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Email job scheduler with BullMQ, MySQL, Redis and Elasticsearch",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "workspaces": [],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1"
+  }
+}
