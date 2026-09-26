@@ -1,0 +1,11 @@
+# Normalise line endings to LF in the repository and the working tree.
+* text=auto eol=lf
+
+# Shell scripts run inside Linux containers; CRLF endings would break them.
+*.sh text eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.pdf binary
+*.woff2 binary
