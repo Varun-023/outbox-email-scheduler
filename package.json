@@ -8,7 +8,8 @@
     "node": ">=22.12.0"
   },
   "workspaces": [
-    "packages/shared"
+    "packages/shared",
+    "backend"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

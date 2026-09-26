@@ -1,0 +1,35 @@
+{
+  "name": "@outbox/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OutBox API server and BullMQ workers",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../.env src/server.ts",
+    "build": "tsup",
+    "start": "node --env-file-if-exists=../.env dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.4",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.19.2",
+    "@outbox/shared": "^0.1.0",
+    "express": "^5.2.1",
+    "ioredis": "^5.11.1",
+    "mysql2": "^3.24.4",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.5"
+  }
+}
