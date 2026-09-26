@@ -9,9 +9,13 @@
   },
   "workspaces": [
     "packages/shared",
-    "backend"
+    "backend",
+    "frontend"
   ],
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @outbox/backend",
+    "dev:web": "npm run dev -w @outbox/frontend",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",

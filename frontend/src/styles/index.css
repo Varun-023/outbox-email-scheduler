@@ -1,0 +1,57 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+
+/*
+ * Design tokens sampled from the Figma frames in docs/figma. Most values are Tailwind v4
+ * palette colours (noted alongside); the three tints without a palette match are custom.
+ */
+@theme {
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+
+  /* Row, label and badge text sits between text-xs (12px) and text-sm (14px). */
+  --text-13: 0.8125rem;
+  --text-13--line-height: 1.125rem;
+
+  /* Brand */
+  --color-brand: #00a63e; /* green-600: primary buttons, links, outlines */
+  --color-brand-hover: #008236; /* green-700 */
+  --color-brand-soft: #e5f6ec; /* custom: active nav, Google button, recipient chips */
+  --color-avatar: #00c950; /* green-500: letter avatars */
+
+  /* Surfaces */
+  --color-surface-muted: #f4f7f5; /* custom: inputs, search pill, user card */
+  --color-surface-subtle: #fafafa; /* custom: editor canvas */
+
+  /* Text and lines */
+  --color-ink: #101828; /* gray-900: primary text */
+  --color-ink-muted: #6a7282; /* gray-500: secondary text, dates */
+  --color-ink-subtle: #99a1af; /* gray-400: placeholders, previews */
+  --color-line: #e5e7eb; /* gray-200: dividers, field underlines */
+  --color-line-soft: #f3f4f6; /* gray-100: card borders, row separators */
+
+  /* Status badges */
+  --color-scheduled-bg: #ffedd4; /* orange-100 */
+  --color-scheduled-border: #ffd6a7; /* orange-200 */
+  --color-scheduled-fg: #ca3500; /* orange-700 */
+  --color-sent-bg: #f3f4f6; /* gray-100 */
+  --color-sent-border: #e5e7eb; /* gray-200 */
+  --color-sent-fg: #4a5565; /* gray-600 */
+
+  /* Quote callout in the email body */
+  --color-callout-bg: #fefce8; /* yellow-50 */
+  --color-callout-bar: #fdc700; /* yellow-400 */
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-white);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
