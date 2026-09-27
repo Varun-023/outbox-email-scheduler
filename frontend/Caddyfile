@@ -1,0 +1,27 @@
+# Production web server for the dashboard (see frontend/Dockerfile).
+# BACKEND_URL is the API's private address, e.g. http://backend.railway.internal:4000.
+{
+	admin off
+	# Railway's edge terminates TLS and forwards plain HTTP to this container.
+	auto_https off
+	servers {
+		# Only Railway's edge reaches this port; keep its X-Forwarded-Proto: https so the
+		# API marks session cookies Secure.
+		trusted_proxies static 0.0.0.0/0 ::/0
+	}
+}
+
+:{$PORT:8080} {
+	encode zstd gzip
+
+	@backend path /api/* /admin/*
+	handle @backend {
+		reverse_proxy {$BACKEND_URL}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
