@@ -108,8 +108,14 @@ export async function redisClockOffset(redis: Redis): Promise<number> {
 }
 
 /** Waits until the start of a fresh rate-limit window, so window assertions are not flaky. */
-export async function alignToWindowStart(windowMs: number, marginMs = 150): Promise<void> {
-  const offset = Date.now() % windowMs;
+export async function alignToWindowStart(
+  windowMs: number,
+  marginMs = 150,
+  redis?: Redis,
+): Promise<void> {
+  // The send gate's windows follow the Redis clock, which drifts from the host clock.
+  const clockOffset = redis ? await redisClockOffset(redis) : 0;
+  const offset = (Date.now() + clockOffset) % windowMs;
   if (offset < marginMs) return;
-  await sleep(windowMs - offset + 20);
+  await sleep(windowMs - offset + 50);
 }

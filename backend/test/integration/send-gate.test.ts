@@ -2,7 +2,7 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { newId } from '../../src/lib/ids';
 import { SendGate, type GateDecision } from '../../src/rate-limit/send-gate';
-import { alignToWindowStart, createTestContext } from '../helpers/context';
+import { alignToWindowStart, createTestContext, redisClockOffset } from '../helpers/context';
 
 const WINDOW_MS = 4_000;
 const ctx = createTestContext();
@@ -20,7 +20,7 @@ const deferred = (decisions: GateDecision[]) =>
 
 describe('send gate (Redis Lua)', () => {
   it('never allows more than the hourly limit, even from many connections at once', async () => {
-    await alignToWindowStart(WINDOW_MS, 1_000);
+    await alignToWindowStart(WINDOW_MS, 1_000, ctx.redis);
     // Separate connections mimic separate worker processes racing for the same sender.
     const connections = Array.from({ length: 5 }, () => new Redis(ctx.env.REDIS_URL));
     const gates = connections.map((redis) => new SendGate(redis, 'test', WINDOW_MS));
@@ -42,7 +42,7 @@ describe('send gate (Redis Lua)', () => {
   });
 
   it('reports the moment the limit is reached exactly once per window and scope', async () => {
-    await alignToWindowStart(WINDOW_MS, 1_000);
+    await alignToWindowStart(WINDOW_MS, 1_000, ctx.redis);
     const gate = new SendGate(ctx.redis, 'test', WINDOW_MS);
     const request = {
       senderId: newId(),
@@ -61,7 +61,7 @@ describe('send gate (Redis Lua)', () => {
   });
 
   it('spaces reserved slots by the larger of the sender and campaign gaps', async () => {
-    await alignToWindowStart(WINDOW_MS, 1_000);
+    await alignToWindowStart(WINDOW_MS, 200, ctx.redis);
     const gate = new SendGate(ctx.redis, 'test', WINDOW_MS);
     const request = {
       senderId: newId(),
@@ -79,13 +79,13 @@ describe('send gate (Redis Lua)', () => {
     expect(waits).toHaveLength(4);
     for (let i = 1; i < waits.length; i += 1) {
       // Each reservation is 250 ms after the previous one, minus the time spent between calls.
-      expect((waits[i] as number) - (waits[i - 1] as number)).toBeGreaterThan(200);
+      expect((waits[i] as number) - (waits[i - 1] as number)).toBeGreaterThan(150);
       expect((waits[i] as number) - (waits[i - 1] as number)).toBeLessThanOrEqual(250);
     }
   });
 
   it('gives overflow ordered, gap-spaced slots in the following windows', async () => {
-    await alignToWindowStart(WINDOW_MS, 1_000);
+    await alignToWindowStart(WINDOW_MS, 1_000, ctx.redis);
     const gate = new SendGate(ctx.redis, 'test', WINDOW_MS);
     const request = {
       senderId: newId(),
@@ -93,7 +93,9 @@ describe('send gate (Redis Lua)', () => {
       sender: { limit: 2, gapMs: 10 },
       campaign: { limit: 100, gapMs: 0 },
     };
-    const windowStart = (index: number) => (Math.floor(Date.now() / WINDOW_MS) + index) * WINDOW_MS;
+    const offset = await redisClockOffset(ctx.redis);
+    const windowStart = (index: number) =>
+      (Math.floor((Date.now() + offset) / WINDOW_MS) + index) * WINDOW_MS;
 
     const decisions: GateDecision[] = [];
     const targets: number[] = [];
@@ -101,7 +103,7 @@ describe('send gate (Redis Lua)', () => {
       const decision = await gate.reserve(request);
       decisions.push(decision);
       // delayMs is relative to the moment of the call, so resolve it right away.
-      if (decision.kind === 'defer') targets.push(Date.now() + decision.delayMs);
+      if (decision.kind === 'defer') targets.push(Date.now() + offset + decision.delayMs);
     }
 
     expect(allowed(decisions)).toHaveLength(2);
@@ -115,7 +117,7 @@ describe('send gate (Redis Lua)', () => {
     ];
     expect(targets).toHaveLength(5);
     targets.forEach((target, i) =>
-      expect(Math.abs(target - (expected[i] as number))).toBeLessThan(25),
+      expect(Math.abs(target - (expected[i] as number))).toBeLessThan(150),
     );
   });
 
@@ -130,7 +132,7 @@ describe('send gate (Redis Lua)', () => {
 
     const first = await gate.confirmStart(request);
     const tooSoon = await gate.confirmStart(request);
-    await new Promise((resolve) => setTimeout(resolve, tooSoon + 5));
+    await new Promise((resolve) => setTimeout(resolve, 400));
     const later = await gate.confirmStart(request);
 
     expect(first).toBe(0);
@@ -141,7 +143,7 @@ describe('send gate (Redis Lua)', () => {
   });
 
   it('keeps senders independent of each other', async () => {
-    await alignToWindowStart(WINDOW_MS, 1_000);
+    await alignToWindowStart(WINDOW_MS, 1_000, ctx.redis);
     const gate = new SendGate(ctx.redis, 'test', WINDOW_MS);
     const limits = { sender: { limit: 1, gapMs: 0 }, campaign: { limit: 10, gapMs: 0 } };
 

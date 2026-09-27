@@ -8,6 +8,9 @@ import { AppError } from '../../lib/app-error';
 import type { SecretBox } from '../../lib/crypto';
 import { newId } from '../../lib/ids';
 import type { RateLimitNotificationJobData } from '../../queue/queues';
+import { safeReturnTo } from '../auth/auth.service';
+
+const STATE_TTL_MS = 10 * 60 * 1000;
 
 export interface SlackOAuthResponse {
   ok: boolean;
@@ -53,12 +56,16 @@ export class SlackService {
       );
     }
 
-    const statePayload = {
-      userId,
-      returnTo,
-      nonce: newId(),
-    };
-    const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+    // Authenticated encryption makes the state unforgeable (a user id cannot be swapped in)
+    // and lets the callback reject stale attempts.
+    const state = this.secrets.encrypt(
+      JSON.stringify({
+        userId,
+        returnTo: safeReturnTo(returnTo),
+        nonce: newId(),
+        issuedAt: Date.now(),
+      }),
+    );
 
     const params = new URLSearchParams({
       client_id: this.config.clientId,
@@ -72,11 +79,15 @@ export class SlackService {
     };
   }
 
-  async completeAuth(query: {
-    code?: string;
-    state?: string;
-    error?: string;
-  }): Promise<{ teamName: string; channelName: string; returnTo: string }> {
+  /** `sessionUserId`, when given, must be the user who started the flow (the route passes it). */
+  async completeAuth(
+    query: {
+      code?: string;
+      state?: string;
+      error?: string;
+    },
+    sessionUserId?: string,
+  ): Promise<{ teamName: string; channelName: string; returnTo: string }> {
     if (query.error) {
       this.logger.warn({ error: query.error }, 'Slack OAuth was cancelled or denied');
       throw new AppError(400, 'BAD_REQUEST', `Slack authorization failed: ${query.error}`);
@@ -90,13 +101,20 @@ export class SlackService {
       throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Slack integration is not configured');
     }
 
-    let parsedState: { userId: string; returnTo?: string };
+    let parsedState: { userId: string; returnTo?: string; issuedAt?: number };
     try {
-      parsedState = JSON.parse(Buffer.from(query.state, 'base64url').toString('utf8'));
+      parsedState = JSON.parse(this.secrets.decrypt(query.state));
       if (!parsedState.userId) throw new Error('Missing userId in state');
+      if (!parsedState.issuedAt || Date.now() - parsedState.issuedAt > STATE_TTL_MS) {
+        throw new Error('Expired state');
+      }
     } catch {
       throw new AppError(400, 'BAD_REQUEST', 'Invalid state parameter in Slack OAuth callback');
     }
+    if (sessionUserId !== undefined && sessionUserId !== parsedState.userId) {
+      throw new AppError(403, 'FORBIDDEN', 'Slack authorization was started by another user');
+    }
+    parsedState.returnTo = safeReturnTo(parsedState.returnTo);
 
     // Verify user exists
     const [user] = await this.db

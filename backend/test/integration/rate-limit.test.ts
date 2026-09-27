@@ -77,7 +77,7 @@ describe('hourly limit', () => {
       hourlyLimit: 3,
     });
     await startWorkers(2);
-    await alignToWindowStart(WINDOW_MS, 300);
+    await alignToWindowStart(WINDOW_MS, 300, ctx.redis);
     const now = new Date();
     // Two campaigns share the sender and each planned 3 emails for this window: 6 > limit 3.
     const a = await createCampaign(ctx.db, {
@@ -170,7 +170,7 @@ describe('rescheduling order', () => {
       minDelayMs: 20,
     });
     await startWorkers(1, 1);
-    await alignToWindowStart(WINDOW_MS, 300);
+    await alignToWindowStart(WINDOW_MS, 300, ctx.redis);
     // Due in the future, so BullMQ releases the delayed jobs in due-time order.
     const t0 = Date.now() + 500;
     // Interleaved due times: A0, B0, A1, B1, … — eight emails for a limit of four.

@@ -24,7 +24,10 @@ export function createSlackRouter(deps: {
       const state = typeof req.query.state === 'string' ? req.query.state : undefined;
       const error = typeof req.query.error === 'string' ? req.query.error : undefined;
 
-      const result = await slack.completeAuth({ code, state, error });
+      // The callback must arrive in the same signed-in session that started the flow.
+      const sessionUserId = req.session?.userId;
+      if (!sessionUserId) throw new Error('No signed-in session for the Slack callback');
+      const result = await slack.completeAuth({ code, state, error }, sessionUserId);
       res.redirect(302, `${appOrigin}${result.returnTo || '/'}?slack=connected`);
     } catch (err) {
       req.log.warn({ err }, 'Slack OAuth callback failed');

@@ -147,9 +147,23 @@ export async function startWorkerRuntime(
   );
   notificationWorker.on('error', (err) => logger.error({ err }, 'Notification worker error'));
 
+  // Status changes (sent, failed, rescheduled) mark rows search_dirty in MySQL; this asks the
+  // search-sync worker to re-index the backlog. The fixed job id collapses bursts into one job.
+  const requestSearchSync = () => {
+    queues.searchSync
+      .add(JOB_NAMES.indexEmails, {}, { jobId: 'sync-dirty' })
+      .catch((err) => logger.warn({ err }, 'Could not enqueue search sync'));
+  };
+  emailWorker.on('completed', requestSearchSync);
+  emailWorker.on('failed', requestSearchSync);
+
   const maintenanceWorker = new Worker(
     QUEUE_NAMES.maintenance,
-    async () => reconcile(reconcileDeps, { fullSweep: false }),
+    async () => {
+      const report = await reconcile(reconcileDeps, { fullSweep: false });
+      requestSearchSync();
+      return report;
+    },
     { connection: bullConnection, prefix: env.BULLMQ_PREFIX, concurrency: 1 },
   );
   maintenanceWorker.on('error', (err) => logger.error({ err }, 'Maintenance worker error'));
