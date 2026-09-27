@@ -47,6 +47,7 @@ export function createApp({ config, logger, healthChecks, api }: AppDependencies
     app.use('/api/senders', api.requireAuth, api.routers.senders);
     app.use('/api/campaigns', api.requireAuth, api.routers.campaigns);
     app.use('/api/emails', api.requireAuth, api.routers.emails);
+    app.use('/api/integrations/slack', api.routers.slack);
     app.use(BULL_BOARD_PATH, api.requireAuth, api.requireAdmin, api.routers.bullBoard);
   }
 

@@ -6,6 +6,7 @@ import type {
 } from '../../src/modules/auth/google-client';
 import { pkceChallenge } from '../../src/modules/auth/google-client';
 import type { EtherealAccount, EtherealAccountProvider } from '../../src/modules/senders/ethereal';
+import type { SlackOAuthResponse } from '../../src/modules/slack/slack.service';
 
 const token = () => randomBytes(16).toString('hex');
 
@@ -78,4 +79,33 @@ export function googleIdentity(overrides: Partial<GoogleIdentity> = {}): GoogleI
     picture: `https://lh3.googleusercontent.test/${id}`,
     ...overrides,
   };
+}
+
+export class FakeSlackOAuthClient {
+  approveNext: SlackOAuthResponse | null = null;
+  lastCode: string | null = null;
+  lastRedirectUri: string | null = null;
+
+  async exchangeCode(code: string, redirectUri: string): Promise<SlackOAuthResponse> {
+    this.lastCode = code;
+    this.lastRedirectUri = redirectUri;
+    if (this.approveNext) {
+      const res = this.approveNext;
+      this.approveNext = null;
+      return res;
+    }
+    return {
+      ok: true,
+      app_id: 'A0123456789',
+      authed_user: { id: 'U0123456789' },
+      scope: 'incoming-webhook,chat:write',
+      team: { id: 'T0123456789', name: 'Acme Corp' },
+      incoming_webhook: {
+        channel: '#general',
+        channel_id: 'C0123456789',
+        configuration_url: 'https://acme.slack.com/services/B0123456789',
+        url: 'https://hooks.slack.com/services/T00/B00/XXXX',
+      },
+    };
+  }
 }

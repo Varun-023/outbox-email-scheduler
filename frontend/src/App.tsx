@@ -1,4 +1,10 @@
-import type { EmailCounts, EmailFolder, EmailStatus, EmailSummary } from '@outbox/shared';
+import type {
+  EmailCounts,
+  EmailFolder,
+  EmailStatus,
+  EmailSummary,
+  SlackConnectionStatus,
+} from '@outbox/shared';
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api/client';
 import { LoginPage } from './components/auth/LoginPage';
@@ -7,7 +13,7 @@ import { EmailDetailView } from './components/emails/EmailDetailView';
 import { EmailList } from './components/emails/EmailList';
 import { HeaderBar } from './components/layout/HeaderBar';
 import { Sidebar, type NavTab } from './components/layout/Sidebar';
-import { Spinner } from './components/ui/Icons';
+import { CheckIcon, Spinner, XIcon } from './components/ui/Icons';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 function parseCurrentPath(): {
@@ -55,6 +61,39 @@ function MainApp() {
   const [rescheduledFilter, setRescheduledFilter] = useState<boolean | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Slack state & toast feedback
+  const [slackStatus, setSlackStatus] = useState<SlackConnectionStatus | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const searchParams = new URLSearchParams(window.location.search);
+    const slackParam = searchParams.get('slack');
+    if (slackParam === 'connected') {
+      return {
+        type: 'success',
+        message:
+          'Slack connected successfully! Rate limit alerts will now be sent to your channel.',
+      };
+    }
+    if (slackParam === 'error') {
+      return {
+        type: 'error',
+        message: 'Slack connection failed or was cancelled.',
+      };
+    }
+    return null;
+  });
+
+  // Clear slack query parameter from URL after reading initial toast state
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.has('slack')) {
+      searchParams.delete('slack');
+      const newSearch = searchParams.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
   // Listen to browser Back/Forward
   useEffect(() => {
     const handlePopState = () => {
@@ -80,10 +119,56 @@ function MainApp() {
     }
   }, [user]);
 
-  // Fetch emails for pagination
+  // Fetch Slack status
+  const fetchSlackStatus = useCallback(async () => {
+    if (!user || typeof api.getSlackStatus !== 'function') return;
+    try {
+      const status = await api.getSlackStatus();
+      setSlackStatus(status);
+    } catch {
+      // Optional integration
+    }
+  }, [user]);
+
+  // Handle initial data load
+  useEffect(() => {
+    if (!user) return;
+    let ignore = false;
+
+    api
+      .getEmailCounts()
+      .then((data) => {
+        if (!ignore) setCounts(data);
+      })
+      .catch((e) => {
+        console.error('Failed to fetch email counts:', e);
+      });
+
+    if (typeof api.getSlackStatus === 'function') {
+      api
+        .getSlackStatus()
+        .then((status) => {
+          if (!ignore) setSlackStatus(status);
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      ignore = true;
+    };
+  }, [user]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  // Fetch emails for pagination (regular list mode)
   const loadMoreEmails = useCallback(
     async (folder: EmailFolder, cursor: string) => {
-      if (!user) return;
+      if (!user || searchQuery.trim()) return;
       try {
         setIsLoadingMore(true);
         const res = await api.listEmails({
@@ -101,30 +186,53 @@ function MainApp() {
         setIsLoadingMore(false);
       }
     },
-    [user, statusFilter, rescheduledFilter],
+    [user, searchQuery, statusFilter, rescheduledFilter],
   );
 
-  // Refresh counts on user login
-  useEffect(() => {
-    if (!user) return;
-    let ignore = false;
-    api
-      .getEmailCounts()
-      .then((data) => {
-        if (!ignore) setCounts(data);
-      })
-      .catch((e) => {
-        console.error('Failed to fetch email counts:', e);
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [user]);
-
-  // Fetch emails when tab or filters change
+  // Fetch emails or search results when tab, filters, or search query change
   useEffect(() => {
     if (!user || route.page !== 'dashboard') return;
     let ignore = false;
+    const trimmedQuery = searchQuery.trim();
+
+    if (trimmedQuery.length > 0) {
+      const debounceTimer = setTimeout(() => {
+        setIsLoadingEmails(true);
+        api
+          .searchEmails({
+            q: trimmedQuery,
+            folder: route.tab,
+            status: statusFilter,
+            limit: 50,
+          })
+          .then((res) => {
+            if (!ignore) {
+              setEmails(res.items);
+              setNextCursor(null);
+              setEmailError(null);
+              setIsLoadingEmails(false);
+            }
+          })
+          .catch((err) => {
+            if (!ignore) {
+              setEmailError(
+                err?.code === 'SEARCH_UNAVAILABLE'
+                  ? 'Search is currently unavailable'
+                  : err instanceof Error
+                    ? err.message
+                    : 'Failed to search emails',
+              );
+              setIsLoadingEmails(false);
+            }
+          });
+      }, 250);
+
+      return () => {
+        ignore = true;
+        clearTimeout(debounceTimer);
+      };
+    }
+
     api
       .listEmails({
         folder: route.tab,
@@ -146,27 +254,45 @@ function MainApp() {
           setIsLoadingEmails(false);
         }
       });
+
     return () => {
       ignore = true;
     };
-  }, [user, route.page, route.tab, statusFilter, rescheduledFilter]);
+  }, [user, route.page, route.tab, searchQuery, statusFilter, rescheduledFilter]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const [newCounts, res] = await Promise.all([
-        api.getEmailCounts(),
-        api.listEmails({
-          folder: route.tab,
-          status: statusFilter,
-          rescheduled: rescheduledFilter,
-          limit: 25,
-        }),
-      ]);
-      setCounts(newCounts);
-      setEmails(res.items);
-      setNextCursor(res.nextCursor);
-      setEmailError(null);
+      const trimmedQuery = searchQuery.trim();
+      if (trimmedQuery.length > 0) {
+        const [newCounts, res] = await Promise.all([
+          api.getEmailCounts(),
+          api.searchEmails({
+            q: trimmedQuery,
+            folder: route.tab,
+            status: statusFilter,
+            limit: 50,
+          }),
+        ]);
+        setCounts(newCounts);
+        setEmails(res.items);
+        setNextCursor(null);
+        setEmailError(null);
+      } else {
+        const [newCounts, res] = await Promise.all([
+          api.getEmailCounts(),
+          api.listEmails({
+            folder: route.tab,
+            status: statusFilter,
+            rescheduled: rescheduledFilter,
+            limit: 25,
+          }),
+        ]);
+        setCounts(newCounts);
+        setEmails(res.items);
+        setNextCursor(res.nextCursor);
+        setEmailError(null);
+      }
     } catch (err) {
       setEmailError(err instanceof Error ? err.message : 'Refresh failed');
     } finally {
@@ -202,7 +328,31 @@ function MainApp() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-ink">
+    <div className="flex h-screen w-screen overflow-hidden bg-white text-ink relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs font-medium animate-in fade-in slide-in-from-top-2 duration-200 bg-white border-line">
+          {toast.type === 'success' ? (
+            <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <CheckIcon className="w-3 h-3" />
+            </div>
+          ) : (
+            <div className="w-5 h-5 rounded-full bg-red-100 text-red-700 flex items-center justify-center shrink-0">
+              <XIcon className="w-3 h-3" />
+            </div>
+          )}
+          <span className="text-ink font-medium max-w-sm">{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="text-gray-400 hover:text-ink ml-1 cursor-pointer p-0.5"
+            aria-label="Close"
+          >
+            <XIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Desktop Sidebar */}
       <div className="hidden md:block">
         <Sidebar
@@ -210,6 +360,8 @@ function MainApp() {
           onSelectTab={handleTabSelect}
           onOpenCompose={() => navigateTo('/compose')}
           counts={counts}
+          slackStatus={slackStatus}
+          onRefreshSlack={fetchSlackStatus}
         />
       </div>
 
@@ -223,6 +375,8 @@ function MainApp() {
               onSelectTab={handleTabSelect}
               onOpenCompose={() => navigateTo('/compose')}
               counts={counts}
+              slackStatus={slackStatus}
+              onRefreshSlack={fetchSlackStatus}
               onCloseMobile={() => setMobileSidebarOpen(false)}
             />
           </div>

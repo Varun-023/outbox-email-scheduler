@@ -16,7 +16,7 @@ import type { CampaignRow, NewEmailRow } from '../../db/schema';
 import { AppError } from '../../lib/app-error';
 import { newId } from '../../lib/ids';
 import { prepareEmailBody } from '../../lib/sanitize';
-import { enqueueEmailJobs, type SendEmailJobData } from '../../queue/queues';
+import { enqueueEmailJobs, JOB_NAMES, type SendEmailJobData } from '../../queue/queues';
 import type { SendersService } from '../senders/senders.service';
 import type { CampaignsRepository, NewCampaignRow } from './campaigns.repository';
 import { computeRequestHash } from './idempotency';
@@ -92,6 +92,7 @@ export class CampaignsService {
       repository: CampaignsRepository;
       senders: SendersService;
       emailQueue: Queue<SendEmailJobData>;
+      searchSyncQueue?: Queue;
       config: CampaignsConfig;
       logger: Logger;
     },
@@ -215,6 +216,18 @@ export class CampaignsService {
         if (winner) return this.replay(winner, requestHash, recipients.duplicatesRemoved);
       }
       throw err;
+    }
+
+    if (this.deps.searchSyncQueue) {
+      this.deps.searchSyncQueue
+        .add(
+          JOB_NAMES.indexEmails,
+          { emailIds: emailRows.map((r) => r.id) },
+          { jobId: `idx-${campaignId}` },
+        )
+        .catch((err) => {
+          this.deps.logger.warn({ err, campaignId }, 'Could not enqueue search sync for campaign');
+        });
     }
 
     const queueStatus = await this.enqueue(

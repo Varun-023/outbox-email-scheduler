@@ -29,17 +29,7 @@ export function EmailList({
   onSelectEmail,
   onRetry,
 }: EmailListProps) {
-  // Filter by search query if any
-  const filteredEmails = emails.filter((email) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      email.subject.toLowerCase().includes(q) ||
-      email.to.toLowerCase().includes(q) ||
-      (email.toName && email.toName.toLowerCase().includes(q)) ||
-      email.preview.toLowerCase().includes(q)
-    );
-  });
+  const displayEmails = emails;
 
   if (isLoading && emails.length === 0) {
     return (
@@ -81,7 +71,7 @@ export function EmailList({
     );
   }
 
-  if (filteredEmails.length === 0) {
+  if (displayEmails.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 px-4 text-center">
         <div className="w-12 h-12 rounded-full bg-[var(--color-brand-soft)] text-[var(--color-brand)] flex items-center justify-center mb-3">
@@ -112,7 +102,7 @@ export function EmailList({
   return (
     <div className="flex-1 flex flex-col">
       <div className="divide-y divide-line-soft">
-        {filteredEmails.map((email) => (
+        {displayEmails.map((email) => (
           <EmailRow
             key={email.id}
             email={email}

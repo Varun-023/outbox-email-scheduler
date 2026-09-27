@@ -1,28 +1,36 @@
 import { Worker } from 'bullmq';
 import type { Logger } from 'pino';
-import type { Env } from '../config/env';
+import { slackOAuthConfig, type Env } from '../config/env';
 import { createDatabase, createDatabasePool } from '../db/client';
 import { SecretBox } from '../lib/crypto';
 import { createFaultInjector, type FaultInjector } from '../lib/test-faults';
 import { TransportPool } from '../mail/transport-pool';
 import { CampaignsRepository } from '../modules/campaigns/campaigns.repository';
 import { EmailsRepository } from '../modules/emails/emails.repository';
+import { createElasticsearchClient } from '../modules/search/es-client';
+import { SearchService } from '../modules/search/search.service';
+import { SlackService } from '../modules/slack/slack.service';
 import {
   JOB_NAMES,
   QUEUE_NAMES,
   RECONCILE_SCHEDULER_ID,
   closeQueues,
   createQueues,
+  type RateLimitNotificationJobData,
   type SendEmailJobData,
 } from '../queue/queues';
 import { closeRedisConnection, createRedisConnection } from '../queue/redis';
 import { SendGate } from '../rate-limit/send-gate';
 import { createEmailSendProcessor, type SendOutcome } from './email-send.processor';
+import { createNotificationsProcessor } from './notifications.processor';
 import { reconcile, type ReconcileDeps, type ReconcileReport } from './reconcile';
+import { createSearchSyncProcessor, type IndexEmailsJobData } from './search-sync.processor';
 import { SendReceiptStore } from './send-receipts';
 
 export interface WorkerRuntime {
   emailWorker: Worker<SendEmailJobData, SendOutcome>;
+  searchSyncWorker: Worker<IndexEmailsJobData, { indexed: number }>;
+  notificationWorker: Worker<RateLimitNotificationJobData, { delivered: boolean }>;
   reconcile(options: { fullSweep: boolean }): Promise<ReconcileReport>;
   close(): Promise<void>;
 }
@@ -112,6 +120,33 @@ export async function startWorkerRuntime(
   });
   emailWorker.on('error', (err) => logger.error({ err }, 'Email worker error'));
 
+  const elasticsearch = createElasticsearchClient(env.ELASTICSEARCH_URL);
+  const searchService = new SearchService(
+    elasticsearch,
+    emails,
+    logger.child({ component: 'search-service' }),
+    env.ES_INDEX_PREFIX,
+  );
+  const searchSyncWorker = new Worker<IndexEmailsJobData, { indexed: number }>(
+    QUEUE_NAMES.searchSync,
+    createSearchSyncProcessor(searchService, logger.child({ component: 'search-sync' })),
+    { connection: bullConnection, prefix: env.BULLMQ_PREFIX, concurrency: 2 },
+  );
+  searchSyncWorker.on('error', (err) => logger.error({ err }, 'Search sync worker error'));
+
+  const slackService = new SlackService(
+    db,
+    slackOAuthConfig(env),
+    new SecretBox(env.ENCRYPTION_KEY),
+    logger.child({ component: 'slack-service' }),
+  );
+  const notificationWorker = new Worker<RateLimitNotificationJobData, { delivered: boolean }>(
+    QUEUE_NAMES.notifications,
+    createNotificationsProcessor(slackService, logger.child({ component: 'notifications' })),
+    { connection: bullConnection, prefix: env.BULLMQ_PREFIX, concurrency: 2 },
+  );
+  notificationWorker.on('error', (err) => logger.error({ err }, 'Notification worker error'));
+
   const maintenanceWorker = new Worker(
     QUEUE_NAMES.maintenance,
     async () => reconcile(reconcileDeps, { fullSweep: false }),
@@ -136,16 +171,24 @@ export async function startWorkerRuntime(
 
   return {
     emailWorker,
+    searchSyncWorker,
+    notificationWorker,
     reconcile: (reconcileOptions) => reconcile(reconcileDeps, reconcileOptions),
     async close() {
       // Worker.close() waits for in-flight jobs to finish before resolving.
-      await Promise.allSettled([emailWorker.close(), maintenanceWorker.close()]);
+      await Promise.allSettled([
+        emailWorker.close(),
+        maintenanceWorker.close(),
+        searchSyncWorker.close(),
+        notificationWorker.close(),
+      ]);
       await closeQueues(queues);
       transports.close();
       await Promise.allSettled([
         closeRedisConnection(redis),
         closeRedisConnection(bullConnection),
         pool.end(),
+        elasticsearch.close(),
       ]);
     },
   };

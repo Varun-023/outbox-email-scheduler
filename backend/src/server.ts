@@ -47,7 +47,7 @@ const app = createApp({
     // Search is a projection: when Elasticsearch is down the API still schedules and sends.
     { name: 'elasticsearch', critical: false, check: () => pingElasticsearch(elasticsearch) },
   ],
-  api: createApiModules(env, { db: createDatabase(pool), redis, queues }, logger),
+  api: createApiModules(env, { db: createDatabase(pool), redis, queues, elasticsearch }, logger),
 });
 
 const server = app.listen(env.API_PORT, () => {

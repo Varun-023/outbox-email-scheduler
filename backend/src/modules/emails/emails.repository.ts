@@ -1,5 +1,5 @@
 import type { DeferredReason, EmailFolder, EmailStatus } from '@outbox/shared';
-import { and, asc, count, desc, eq, gt, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { ResultSetHeader } from 'mysql2';
 import type { Database } from '../../db/client';
 import {
@@ -342,6 +342,36 @@ export class EmailsRepository {
       .from(emails)
       .where(and(eq(emails.status, 'sending'), lt(emails.leaseUntil, now)))
       .limit(limit);
+  }
+
+  async findForIndexing(emailIds: string[]): Promise<SendableEmail[]> {
+    if (emailIds.length === 0) return [];
+    return this.db
+      .select({ email: emails, campaign: campaigns, sender: senders })
+      .from(emails)
+      .innerJoin(campaigns, eq(campaigns.id, emails.campaignId))
+      .innerJoin(senders, eq(senders.id, emails.senderId))
+      .where(inArray(emails.id, emailIds));
+  }
+
+  async findSearchDirty(limit = 100): Promise<SendableEmail[]> {
+    return this.db
+      .select({ email: emails, campaign: campaigns, sender: senders })
+      .from(emails)
+      .innerJoin(campaigns, eq(campaigns.id, emails.campaignId))
+      .innerJoin(senders, eq(senders.id, emails.senderId))
+      .where(eq(emails.searchDirty, true))
+      .limit(limit);
+  }
+
+  async markIndexed(items: { id: string; version: number }[]): Promise<void> {
+    if (items.length === 0) return;
+    for (const item of items) {
+      await this.db
+        .update(emails)
+        .set({ indexedVersion: item.version })
+        .where(eq(emails.id, item.id));
+    }
   }
 
   private sentFields(receipt: SendReceiptData, now: Date) {

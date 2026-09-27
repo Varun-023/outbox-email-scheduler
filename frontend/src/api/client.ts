@@ -8,6 +8,7 @@ import type {
   EmailStatus,
   ListEmailsResponse,
   Sender,
+  SlackConnectionStatus,
 } from '@outbox/shared';
 
 export class ApiError extends Error {
@@ -81,6 +82,13 @@ export interface ListEmailsParams {
   limit?: number;
 }
 
+export interface SearchEmailsParams {
+  q: string;
+  folder?: EmailFolder;
+  status?: EmailStatus;
+  limit?: number;
+}
+
 export const api = {
   async getMe(): Promise<AuthUser> {
     const res = await fetch('/api/auth/me', {
@@ -132,6 +140,20 @@ export const api = {
     return await handleResponse<ListEmailsResponse>(res);
   },
 
+  async searchEmails(params: SearchEmailsParams): Promise<ListEmailsResponse> {
+    const query = new URLSearchParams();
+    query.set('q', params.q);
+    if (params.folder) query.set('folder', params.folder);
+    if (params.status) query.set('status', params.status);
+    if (params.limit) query.set('limit', String(params.limit));
+
+    const res = await fetch(`/api/emails/search?${query.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    return await handleResponse<ListEmailsResponse>(res);
+  },
+
   async getEmailDetail(id: string): Promise<EmailDetail> {
     const res = await fetch(`/api/emails/${encodeURIComponent(id)}`, {
       method: 'GET',
@@ -154,5 +176,21 @@ export const api = {
       body: JSON.stringify(payload),
     });
     return await handleResponse<CreateCampaignResponse>(res);
+  },
+
+  async getSlackStatus(): Promise<SlackConnectionStatus> {
+    const res = await fetch('/api/integrations/slack', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    return await handleResponse<SlackConnectionStatus>(res);
+  },
+
+  async disconnectSlack(): Promise<void> {
+    const res = await fetch('/api/integrations/slack/disconnect', {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    });
+    await handleResponse<void>(res);
   },
 };

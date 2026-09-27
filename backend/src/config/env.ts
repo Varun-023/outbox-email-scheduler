@@ -62,6 +62,10 @@ export const envSchema = z
       .regex(/^[a-z0-9-]+$/i, 'must contain only letters, digits and hyphens')
       .default('outbox'),
     ELASTICSEARCH_URL: urlWithProtocol(['http:', 'https:']),
+    ES_INDEX_PREFIX: z
+      .string()
+      .regex(/^[a-z0-9_-]+$/i, 'must contain only letters, digits, underscores and hyphens')
+      .default('outbox'),
 
     SESSION_SECRET: requiredString().min(32, 'must be at least 32 characters'),
     ENCRYPTION_KEY: requiredString().refine(
@@ -84,6 +88,11 @@ export const envSchema = z
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
     GOOGLE_REDIRECT_URI: urlWithProtocol(['http:', 'https:']).optional(),
+
+    // Slack OAuth integration
+    SLACK_CLIENT_ID: z.string().optional(),
+    SLACK_CLIENT_SECRET: z.string().optional(),
+    SLACK_REDIRECT_URI: urlWithProtocol(['http:', 'https:']).optional(),
 
     AUTO_PROVISION_SENDERS: int(0, 5).default(2),
     SMTP_CONNECTION_TIMEOUT_MS: int(1_000, 120_000).default(10_000),
@@ -120,6 +129,15 @@ export const envSchema = z
         path: ['GOOGLE_CLIENT_ID'],
         message:
           'GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI must be set together',
+      });
+    }
+
+    const slack = [env.SLACK_CLIENT_ID, env.SLACK_CLIENT_SECRET, env.SLACK_REDIRECT_URI];
+    if (slack.some(Boolean) && !slack.every(Boolean)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SLACK_CLIENT_ID'],
+        message: 'SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_REDIRECT_URI must be set together',
       });
     }
   });
@@ -177,6 +195,21 @@ export function googleOAuthConfig(env: Env): GoogleOAuthConfig | null {
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET,
     redirectUri: env.GOOGLE_REDIRECT_URI,
+  };
+}
+
+export interface SlackOAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}
+
+export function slackOAuthConfig(env: Env): SlackOAuthConfig | null {
+  if (!env.SLACK_CLIENT_ID || !env.SLACK_CLIENT_SECRET || !env.SLACK_REDIRECT_URI) return null;
+  return {
+    clientId: env.SLACK_CLIENT_ID,
+    clientSecret: env.SLACK_CLIENT_SECRET,
+    redirectUri: env.SLACK_REDIRECT_URI,
   };
 }
 

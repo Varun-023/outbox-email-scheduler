@@ -1,7 +1,8 @@
+import type { Client } from '@elastic/elasticsearch';
 import type { RequestHandler, Router } from 'express';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
-import { bullBoardReadOnly, googleOAuthConfig, type Env } from './config/env';
+import { bullBoardReadOnly, googleOAuthConfig, slackOAuthConfig, type Env } from './config/env';
 import type { Database } from './db/client';
 import { SecretBox } from './lib/crypto';
 import { createAuthRouter } from './modules/auth/auth.routes';
@@ -15,10 +16,13 @@ import { CampaignsService } from './modules/campaigns/campaigns.service';
 import { EmailsRepository } from './modules/emails/emails.repository';
 import { createEmailsRouter } from './modules/emails/emails.routes';
 import { EmailsService } from './modules/emails/emails.service';
+import { SearchService } from './modules/search/search.service';
 import { etherealAccountProvider, type EtherealAccountProvider } from './modules/senders/ethereal';
 import { SendersRepository } from './modules/senders/senders.repository';
 import { createSendersRouter } from './modules/senders/senders.routes';
 import { SendersService } from './modules/senders/senders.service';
+import { createSlackRouter } from './modules/slack/slack.routes';
+import { SlackService, type SlackOAuthClient } from './modules/slack/slack.service';
 import { UsersRepository } from './modules/users/users.repository';
 import { createBullBoardRouter } from './queue/bull-board';
 import type { Queues } from './queue/queues';
@@ -32,6 +36,7 @@ export interface ApiModules {
     senders: Router;
     campaigns: Router;
     emails: Router;
+    slack: Router;
     bullBoard: Router;
   };
 }
@@ -40,12 +45,14 @@ export interface ApiInfrastructure {
   db: Database;
   redis: Redis;
   queues: Queues;
+  elasticsearch?: Client;
 }
 
 /** External services tests replace with fakes. */
 export interface ApiOverrides {
   google?: GoogleAuthClient | null;
   ethereal?: EtherealAccountProvider;
+  slack?: SlackOAuthClient;
 }
 
 /** Wires repositories → services → routers for the API process. */
@@ -81,10 +88,28 @@ export function createApiModules(
     },
   });
 
+  const searchService = infra.elasticsearch
+    ? new SearchService(
+        infra.elasticsearch,
+        new EmailsRepository(infra.db),
+        logger.child({ component: 'search' }),
+        env.ES_INDEX_PREFIX,
+      )
+    : undefined;
+
+  const slackService = new SlackService(
+    infra.db,
+    slackOAuthConfig(env),
+    new SecretBox(env.ENCRYPTION_KEY),
+    logger.child({ component: 'slack' }),
+    overrides.slack,
+  );
+
   const campaigns = new CampaignsService({
     repository: new CampaignsRepository(infra.db),
     senders,
     emailQueue: infra.queues.emails,
+    searchSyncQueue: infra.queues.searchSync,
     config: {
       maxRecipients: env.MAX_RECIPIENTS_PER_CAMPAIGN,
       maxScheduleAheadDays: env.MAX_SCHEDULE_AHEAD_DAYS,
@@ -111,7 +136,12 @@ export function createApiModules(
       }),
       senders: createSendersRouter(senders),
       campaigns: createCampaignsRouter(campaigns),
-      emails: createEmailsRouter(new EmailsService(new EmailsRepository(infra.db))),
+      emails: createEmailsRouter(new EmailsService(new EmailsRepository(infra.db)), searchService),
+      slack: createSlackRouter({
+        slack: slackService,
+        requireAuth: authenticate,
+        appOrigin: env.APP_ORIGIN,
+      }),
       bullBoard: createBullBoardRouter(Object.values(infra.queues), {
         readOnly: bullBoardReadOnly(env),
       }),

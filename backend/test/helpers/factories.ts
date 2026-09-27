@@ -76,24 +76,31 @@ export async function createCampaign(
     user: UserRow;
     sender: SenderRow;
     recipients: string[];
-    scheduledAt: Date | ((index: number) => Date);
+    scheduledAt?: Date | ((index: number) => Date);
     hourlyLimit?: number;
     delayBetweenMs?: number;
     subject?: string;
+    bodyHtml?: string;
+    bodyText?: string;
+    previewText?: string;
   },
 ): Promise<CampaignFixture> {
   const now = new Date();
   const campaignId = newId();
-  const at = (index: number) =>
-    typeof options.scheduledAt === 'function' ? options.scheduledAt(index) : options.scheduledAt;
+  const at = (index: number) => {
+    if (!options.scheduledAt) return now;
+    return typeof options.scheduledAt === 'function'
+      ? options.scheduledAt(index)
+      : options.scheduledAt;
+  };
   const campaign: CampaignRow = {
     id: campaignId,
     userId: options.user.id,
     senderId: options.sender.id,
     subject: options.subject ?? 'Meeting follow-up',
-    bodyHtml: '<p>Hi, just following up on our meeting.</p>',
-    bodyText: 'Hi, just following up on our meeting.',
-    previewText: 'Hi, just following up on our meeting.',
+    bodyHtml: options.bodyHtml ?? '<p>Hi, just following up on our meeting.</p>',
+    bodyText: options.bodyText ?? 'Hi, just following up on our meeting.',
+    previewText: options.previewText ?? 'Hi, just following up on our meeting.',
     startAt: at(0),
     delayBetweenMs: options.delayBetweenMs ?? 0,
     hourlyLimit: options.hourlyLimit ?? 1_000,

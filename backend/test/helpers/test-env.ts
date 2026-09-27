@@ -50,6 +50,9 @@ export function integrationEnvVars(overrides: Record<string, string> = {}): Reco
     MIN_DELAY_BETWEEN_EMAILS_MS: '0',
     RECONCILE_INTERVAL_MS: '0',
     AUTO_PROVISION_SENDERS: '2',
+    SLACK_CLIENT_ID: 'test-slack-client-id',
+    SLACK_CLIENT_SECRET: 'test-slack-client-secret',
+    SLACK_REDIRECT_URI: 'https://localhost:5173/api/integrations/slack/callback',
     ...overrides,
   };
 }

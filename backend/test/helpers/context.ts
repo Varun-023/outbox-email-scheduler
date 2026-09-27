@@ -1,9 +1,11 @@
+import type { Client } from '@elastic/elasticsearch';
 import type { Redis } from 'ioredis';
 import type { Pool } from 'mysql2/promise';
 import { pino, type Logger } from 'pino';
 import type { Env } from '../../src/config/env';
 import { createDatabase, createDatabasePool, type Database } from '../../src/db/client';
 import { SecretBox } from '../../src/lib/crypto';
+import { createElasticsearchClient } from '../../src/modules/search/es-client';
 import { closeQueues, createQueues, type Queues } from '../../src/queue/queues';
 import { closeRedisConnection, createRedisConnection } from '../../src/queue/redis';
 import { integrationEnv } from './test-env';
@@ -19,6 +21,7 @@ export interface TestContext {
   redis: Redis;
   queues: Queues;
   secrets: SecretBox;
+  elasticsearch: Client;
   /** Truncates every application table and flushes the test Redis database. */
   reset(): Promise<void>;
   close(): Promise<void>;
@@ -34,6 +37,7 @@ export function createTestContext(overrides: Record<string, string> = {}): TestC
     emailJobAttempts: env.EMAIL_JOB_ATTEMPTS,
     emailJobBackoffMs: env.EMAIL_JOB_BACKOFF_MS,
   });
+  const elasticsearch = createElasticsearchClient(env.ELASTICSEARCH_URL);
 
   return {
     env,
@@ -43,6 +47,7 @@ export function createTestContext(overrides: Record<string, string> = {}): TestC
     redis,
     queues,
     secrets: new SecretBox(env.ENCRYPTION_KEY),
+    elasticsearch,
     async reset() {
       const connection = await pool.getConnection();
       try {
@@ -53,11 +58,17 @@ export function createTestContext(overrides: Record<string, string> = {}): TestC
         connection.release();
       }
       await redis.flushdb();
+      try {
+        await elasticsearch.indices.delete({ index: `${env.ES_INDEX_PREFIX}_*` });
+      } catch {
+        // Index might not exist yet
+      }
     },
     async close() {
       await closeQueues(queues);
       await closeRedisConnection(redis);
       await pool.end();
+      await elasticsearch.close();
     },
   };
 }

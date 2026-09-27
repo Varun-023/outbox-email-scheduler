@@ -13,7 +13,12 @@ export function createTestApp(ctx: TestContext, overrides: ApiOverrides = {}): E
     healthChecks: [],
     api: createApiModules(
       ctx.env,
-      { db: ctx.db, redis: ctx.redis, queues: ctx.queues },
+      {
+        db: ctx.db,
+        redis: ctx.redis,
+        queues: ctx.queues,
+        elasticsearch: ctx.elasticsearch,
+      },
       ctx.logger,
       overrides,
     ),
