@@ -22,4 +22,9 @@ export default defineConfig(
       ],
     },
   },
+  {
+    // Command-line scripts print their results.
+    files: ['backend/scripts/**/*.ts'],
+    rules: { 'no-console': 'off' },
+  },
 );

@@ -13,9 +13,11 @@
     "frontend"
   ],
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "concurrently --kill-others-on-fail -n api,worker,web -c blue,magenta,green \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\"",
     "dev:api": "npm run dev -w @outbox/backend",
+    "dev:worker": "npm run dev:worker -w @outbox/backend",
     "dev:web": "npm run dev -w @outbox/frontend",
+    "db:migrate": "npm run db:migrate -w @outbox/backend",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",

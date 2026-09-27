@@ -1,4 +1,8 @@
+import { drizzle, type MySql2Database } from 'drizzle-orm/mysql2';
 import { createPool, type Pool } from 'mysql2/promise';
+import * as schema from './schema';
+
+export type Database = MySql2Database<typeof schema>;
 
 export interface DatabasePoolOptions {
   url: string;
@@ -20,6 +24,10 @@ export function createDatabasePool(options: DatabasePoolOptions): Pool {
     charset: 'UTF8MB4_0900_AI_CI',
     multipleStatements: false,
   });
+}
+
+export function createDatabase(pool: Pool): Database {
+  return drizzle(pool, { schema, mode: 'default' });
 }
 
 export async function pingDatabase(pool: Pool): Promise<void> {
